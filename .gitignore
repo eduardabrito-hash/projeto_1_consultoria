@@ -1,0 +1,24 @@
+# Arquivos temporários do Python
+__pycache__/
+*.py[cod]
+
+# Ambientes virtuais
+.venv/
+venv/
+env/
+
+# Arquivos do sistema
+.DS_Store
+Thumbs.db
+
+# Arquivos do VS Code
+.vscode/
+
+# Cache do Streamlit
+.streamlit/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Material utilizado durante a aula
+api_aula_27/

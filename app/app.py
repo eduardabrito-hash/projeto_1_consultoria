@@ -5,15 +5,17 @@
 
 import streamlit as st
 import pandas as pd
-from pathlib import Path
+import requests
 
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import (
-    mean_squared_error,
-    mean_absolute_error,
-    r2_score
+# ==========================================================
+# CONFIGURAÇÃO DA API
+# ==========================================================
+
+API_URL = st.secrets.get(
+    "API_URL",
+    "http://127.0.0.1:8000"
 )
+
 
 # ==========================================================
 # CONFIGURAÇÃO DA PÁGINA
@@ -143,98 +145,36 @@ st.markdown(
 )
 
 # ==========================================================
-# CARREGAMENTO DOS DADOS
+# CARREGAMENTO DAS MÉTRICAS PELA API
 # ==========================================================
 
-@st.cache_data
-def carregar_dados():
-    caminho = Path(__file__).resolve().parents[1] / "dados" / "train.csv"
-    return pd.read_csv(caminho)
+@st.cache_data(ttl=60)
+def carregar_metricas():
 
-dados = carregar_dados()
-
-# ==========================================================
-# PREPARAÇÃO DOS DADOS
-# ==========================================================
-
-@st.cache_data
-def preparar_dados(dados):
-    modelo = dados[
-        [
-            "SalePrice",
-            "GrLivArea",
-            "OverallQual",
-            "GarageCars",
-            "BedroomAbvGr",
-            "LotArea",
-            "YearBuilt",
-            "FullBath"
-        ]
-    ].copy()
-
-    return modelo
-
-modelo = preparar_dados(dados)
-
-# ==========================================================
-# AJUSTE E AVALIAÇÃO DO MODELO RANDOM FOREST
-# ==========================================================
-
-@st.cache_resource
-def ajustar_modelo(modelo):
-
-    # Variáveis explicativas
-    X = modelo[
-        [
-            "GrLivArea",
-            "OverallQual",
-            "GarageCars",
-            "BedroomAbvGr",
-            "LotArea",
-            "YearBuilt",
-            "FullBath"
-        ]
-    ]
-
-    # Variável resposta
-    y = modelo["SalePrice"]
-
-    # Divisão da base em treinamento e teste
-    X_train, X_test, y_train, y_test = train_test_split(
-        X,
-        y,
-        test_size=0.20,
-        random_state=42
+    resposta = requests.get(
+        f"{API_URL}/metrics",
+        timeout=10
     )
 
-    # Modelo utilizado na validação preditiva
-    modelo_validacao = RandomForestRegressor(
-        n_estimators=200,
-        random_state=42
-    )
+    resposta.raise_for_status()
 
-    modelo_validacao.fit(X_train, y_train)
-
-    # Previsões na base de teste
-    y_pred_test = modelo_validacao.predict(X_test)
-
-    # Métricas de desempenho na base de teste
-    rmse = mean_squared_error(y_test, y_pred_test) ** 0.5
-    mae = mean_absolute_error(y_test, y_pred_test)
-    r2 = r2_score(y_test, y_pred_test)
-
-    # Modelo final ajustado com toda a base
-    modelo_rf_final = RandomForestRegressor(
-        n_estimators=200,
-        random_state=42
-    )
-
-    modelo_rf_final.fit(X, y)
-
-    return modelo_rf_final, rmse, mae, r2
+    return resposta.json()
 
 
-modelo_rf_final, rmse, mae, r2 = ajustar_modelo(modelo)
+try:
+
+    metricas = carregar_metricas()
+
+    rmse = metricas["rmse"]
+    mae = metricas["mae"]
+    r2 = metricas["r2"]
+
+except requests.exceptions.RequestException:
+
+    rmse = None
+    mae = None
+    r2 = None
+
 
 # ==========================================================
 # FORMULÁRIO
@@ -349,15 +289,19 @@ st.dataframe(
 # PREVISÃO
 # ==========================================================
 
-novo_imovel = pd.DataFrame({
-    "GrLivArea": [GrLivArea],
-    "OverallQual": [OverallQual],
-    "GarageCars": [GarageCars],
-    "BedroomAbvGr": [BedroomAbvGr],
-    "LotArea": [LotArea],
-    "YearBuilt": [YearBuilt],
-    "FullBath": [FullBath]
-})
+dados_imovel = {
+    "GrLivArea": GrLivArea,
+    "OverallQual": OverallQual,
+    "GarageCars": GarageCars,
+    "BedroomAbvGr": BedroomAbvGr,
+    "LotArea": LotArea,
+    "YearBuilt": YearBuilt,
+    "FullBath": FullBath
+}
+
+payload = {
+    "data": dados_imovel
+}
 
 st.markdown("---")
 
@@ -365,28 +309,62 @@ if st.button(
     "🔎 Estimar preço do imóvel",
     width="stretch"
 ):
-    preco_previsto = modelo_rf_final.predict(novo_imovel)[0]
 
-    valor = f"{preco_previsto:,.2f}"
-    valor = valor.replace(",", "X").replace(".", ",").replace("X", ".")
+    try:
 
-    st.markdown(
-        f"""
-        <div class="card">
-            <p class="texto-card">💰 Preço estimado de venda</p>
-            <div class="resultado">US$ {valor}</div>
-            <p class="texto-card">
-            Estimativa gerada pelo modelo Random Forest
-            </p>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+        resposta = requests.post(
+            f"{API_URL}/predict",
+            json=payload,
+            timeout=10
+        )
 
-    st.success(
-        "Estimativa concluída com sucesso. O valor apresentado corresponde ao preço de venda estimado "
-        "em dólares americanos (USD), conforme a base de dados utilizada."
-    )
+        resposta.raise_for_status()
+
+        resultado = resposta.json()
+
+        preco_previsto = resultado["prediction"]
+
+        valor = f"{preco_previsto:,.2f}"
+        valor = valor.replace(
+            ",",
+            "X"
+        ).replace(
+            ".",
+            ","
+        ).replace(
+            "X",
+            "."
+        )
+
+        st.markdown(
+            f"""
+            <div class="card">
+                <p class="texto-card">💰 Preço estimado de venda</p>
+                <div class="resultado">US$ {valor}</div>
+                <p class="texto-card">
+                Estimativa gerada pelo modelo Random Forest
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        st.success(
+            "Estimativa concluída com sucesso. "
+            "O valor apresentado corresponde ao preço de venda estimado "
+            "em dólares americanos (USD), conforme a base de dados utilizada."
+        )
+
+    except requests.exceptions.RequestException as erro:
+
+        st.error(
+            "Não foi possível obter a previsão pela API. "
+            "Verifique se a FastAPI está em execução."
+        )
+
+        st.caption(
+            f"Detalhes técnicos: {erro}"
+        )
 
 # ==========================================================
 # MÉTRICAS DO MODELO
@@ -396,31 +374,50 @@ st.markdown("---")
 
 st.subheader("📊 Desempenho do modelo na base de teste")
 
-col_m1, col_m2, col_m3 = st.columns(3)
+if (
+    rmse is not None
+    and mae is not None
+    and r2 is not None
+):
 
-with col_m1:
-    st.metric(
-        "RMSE",
-        f"{rmse:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    col_m1, col_m2, col_m3 = st.columns(3)
+
+    with col_m1:
+        st.metric(
+            "RMSE",
+            f"{rmse:,.2f}"
+            .replace(",", "X")
+            .replace(".", ",")
+            .replace("X", ".")
+        )
+
+    with col_m2:
+        st.metric(
+            "MAE",
+            f"{mae:,.2f}"
+            .replace(",", "X")
+            .replace(".", ",")
+            .replace("X", ".")
+        )
+
+    with col_m3:
+        st.metric(
+            "R²",
+            f"{r2:.4f}".replace(".", ",")
+        )
+
+    st.caption(
+        "As métricas foram calculadas no conjunto de teste, "
+        "composto por 20% das observações e não utilizado "
+        "no treinamento do modelo de validação."
     )
 
-with col_m2:
-    st.metric(
-        "MAE",
-        f"{mae:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+else:
+
+    st.warning(
+        "As métricas do modelo não puderam ser carregadas pela API."
     )
-
-with col_m3:
-    st.metric(
-        "R²",
-        f"{r2:.4f}".replace(".", ",")
-    )
-
-st.caption(
-    "As métricas foram calculadas no conjunto de teste, composto por 20% das observações "
-    "e não utilizado no treinamento do modelo de validação."
-)
-
+    
 # ==========================================================
 # INFORMAÇÕES COMPLEMENTARES
 # ==========================================================
