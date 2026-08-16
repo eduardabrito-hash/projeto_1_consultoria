@@ -50,7 +50,8 @@ st.markdown(
     }
 
     .caixa-info {
-        background-color: #f1f6fb;
+        background-color:  #f1f6fb;
+        color: #333333;
         padding: 18px;
         border-left: 5px solid #1f4e79;
         border-radius: 8px;
