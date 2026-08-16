@@ -154,7 +154,7 @@ def carregar_metricas():
 
     resposta = requests.get(
         f"{API_URL}/metrics",
-        timeout=10
+        timeout=60
     )
 
     resposta.raise_for_status()
@@ -316,7 +316,7 @@ if st.button(
         resposta = requests.post(
             f"{API_URL}/predict",
             json=payload,
-            timeout=10
+            timeout=60
         )
 
         resposta.raise_for_status()
